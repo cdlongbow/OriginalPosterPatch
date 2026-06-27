@@ -1,50 +1,47 @@
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Model.Serialization;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 
 namespace OriginalPoster.Services;
 
 public class LanguageCacheManager
 {
+    private const string CacheKeyVersion = "v2";
+
     private readonly IJsonSerializer _jsonSerializer;
     private readonly string _cacheFilePath;
-    private Dictionary<string, string> _cache;
     private readonly object _writeLock = new object();
+    private Dictionary<string, string> _cache;
 
     public LanguageCacheManager(IApplicationPaths applicationPaths, IJsonSerializer jsonSerializer)
     {
-        _jsonSerializer = jsonSerializer;
-        // 将缓存文件保存在插件配置目录，名为 OriginalPoster.Cache.json
+        _jsonSerializer = jsonSerializer ?? throw new ArgumentNullException(nameof(jsonSerializer));
         _cacheFilePath = Path.Combine(applicationPaths.PluginConfigurationsPath, "OriginalPoster.Cache.json");
         _cache = LoadCache();
     }
 
-    /// <summary>
-    /// 尝试从缓存获取语言
-    /// </summary>
     public bool TryGetLanguage(string tmdbId, string type, out string? language)
     {
         string key = GetKey(tmdbId, type);
-        lock (_writeLock) // 读取也加锁，防止读取时正在写入导致集合修改异常
+        lock (_writeLock)
         {
             return _cache.TryGetValue(key, out language);
         }
     }
 
-    /// <summary>
-    /// 添加并保存到缓存
-    /// </summary>
     public void AddAndSave(string tmdbId, string type, string language)
     {
+        if (string.IsNullOrWhiteSpace(tmdbId) || string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(language))
+            return;
+
         string key = GetKey(tmdbId, type);
-        
+
         lock (_writeLock)
         {
-            // 如果已存在且相同，不重复写入 IO
-            if (_cache.TryGetValue(key, out var existing) && existing == language)
+            if (_cache.TryGetValue(key, out var existing) && string.Equals(existing, language, StringComparison.OrdinalIgnoreCase))
                 return;
 
             _cache[key] = language;
@@ -52,37 +49,54 @@ public class LanguageCacheManager
         }
     }
 
-    private string GetKey(string tmdbId, string type) => $"{type}_{tmdbId}";
+    public void Clear()
+    {
+        lock (_writeLock)
+        {
+            _cache.Clear();
+            SaveCache();
+        }
+    }
+
+    private static string GetKey(string tmdbId, string type) => $"{CacheKeyVersion}:{type}:{tmdbId}";
 
     private Dictionary<string, string> LoadCache()
     {
         try
         {
-            if (File.Exists(_cacheFilePath))
-            {
-                var json = File.ReadAllText(_cacheFilePath);
-                if (!string.IsNullOrEmpty(json))
-                {
-                    return _jsonSerializer.DeserializeFromString<Dictionary<string, string>>(json) 
-                           ?? new Dictionary<string, string>();
-                }
-            }
+            if (!File.Exists(_cacheFilePath))
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            var json = File.ReadAllText(_cacheFilePath);
+            if (string.IsNullOrWhiteSpace(json))
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            return _jsonSerializer.DeserializeFromString<Dictionary<string, string>>(json)
+                   ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
-        catch { /* 忽略读取错误，使用空字典 */ }
-        
-        return new Dictionary<string, string>();
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[OriginalPoster] Failed to load language cache: {ex.Message}");
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
     }
 
     private void SaveCache()
     {
         try
         {
-            // 序列化并写入文件
-            // 注意：对于几千条数据，JSON 写入非常快。
-            // 如果数据量达到几十万，可能需要优化保存策略（如每隔几分钟保存一次），目前实时保存即可。
+            var directory = Path.GetDirectoryName(_cacheFilePath);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
+            var tempPath = _cacheFilePath + ".tmp";
             var json = _jsonSerializer.SerializeToString(_cache);
-            File.WriteAllText(_cacheFilePath, json);
+            File.WriteAllText(tempPath, json);
+            File.Move(tempPath, _cacheFilePath, true);
         }
-        catch { /* 忽略写入错误 */ }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[OriginalPoster] Failed to save language cache: {ex.Message}");
+        }
     }
 }
