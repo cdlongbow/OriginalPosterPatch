@@ -122,9 +122,17 @@ public class OriginalPosterProvider : IRemoteImageProvider, IHasOrder
     {
         _logger?.Debug("[OriginalPoster] Test mode enabled, returning test poster");
 
+        if (string.IsNullOrWhiteSpace(config.TestPosterUrl))
+        {
+            _logger?.Debug("[OriginalPoster] Test mode enabled, but test poster URL is empty.");
+            return Enumerable.Empty<RemoteImageInfo>();
+        }
+
         string testLangCode = !string.IsNullOrWhiteSpace(libraryOptions.PreferredMetadataLanguage)
             ? libraryOptions.PreferredMetadataLanguage.Trim()
             : "en";
+
+        var testPosterUrl = config.TestPosterUrl.Trim();
 
         return new[]
         {
@@ -132,8 +140,8 @@ public class OriginalPosterProvider : IRemoteImageProvider, IHasOrder
             {
                 ProviderName = Name,
                 Type = ImageType.Primary,
-                Url = config.TestPosterUrl.Trim(),
-                ThumbnailUrl = config.TestPosterUrl.Trim(),
+                Url = testPosterUrl,
+                ThumbnailUrl = testPosterUrl,
                 Language = testLangCode,
                 DisplayLanguage = GetDisplayLanguage(testLangCode),
                 Width = 2000,
@@ -228,8 +236,7 @@ public class OriginalPosterProvider : IRemoteImageProvider, IHasOrder
 
             if (!string.IsNullOrWhiteSpace(idString))
             {
-                if (idString.StartsWith("collection/", StringComparison.OrdinalIgnoreCase))
-                    idString = idString.Substring("collection/".Length);
+                idString = NormalizeTmdbId(idString, "collection/");
 
                 if (int.TryParse(idString, out _))
                 {
@@ -246,22 +253,48 @@ public class OriginalPosterProvider : IRemoteImageProvider, IHasOrder
         {
             if (item.ProviderIds?.TryGetValue(MetadataProviders.Tmdb.ToString(), out var id) == true)
             {
-                _logger?.Debug("[OriginalPoster] TMDB ID: {0}", id);
-                return id;
+                id = NormalizeTmdbId(id);
+                if (int.TryParse(id, out _))
+                {
+                    _logger?.Debug("[OriginalPoster] TMDB ID: {0}", id);
+                    return id;
+                }
+
+                _logger?.Debug("[OriginalPoster] Invalid TMDB ID: {0}", id);
             }
         }
         else if (item is Season season)
         {
             var series = season.Series;
-            if (series?.ProviderIds?.TryGetValue(MetadataProviders.Tmdb.ToString(), out var seriesTmdbId) == true)
+            var seasonNumber = Convert.ToString(season.IndexNumber, CultureInfo.InvariantCulture)?.Trim();
+            if (series?.ProviderIds?.TryGetValue(MetadataProviders.Tmdb.ToString(), out var seriesTmdbId) == true
+                && !string.IsNullOrWhiteSpace(seasonNumber))
             {
-                var seasonId = $"{seriesTmdbId}_S{season.IndexNumber}";
+                seriesTmdbId = NormalizeTmdbId(seriesTmdbId);
+                if (!int.TryParse(seriesTmdbId, out _))
+                {
+                    _logger?.Debug("[OriginalPoster] Invalid series TMDB ID for season: {0}", seriesTmdbId);
+                    return null;
+                }
+
+                var seasonId = $"{seriesTmdbId}_S{seasonNumber}";
                 _logger?.Debug("[OriginalPoster] Season composite TMDB ID: {0}", seasonId);
                 return seasonId;
             }
+
+            _logger?.Debug("[OriginalPoster] Season found, but series TMDB ID or season number is missing.");
         }
 
         return null;
+    }
+
+    private static string NormalizeTmdbId(string tmdbId, string? prefix = null)
+    {
+        var normalized = tmdbId.Trim();
+        if (!string.IsNullOrWhiteSpace(prefix) && normalized.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            normalized = normalized.Substring(prefix.Length);
+
+        return normalized.Trim();
     }
 
     private IEnumerable<RemoteImageInfo> ConvertToRemoteImageInfo(
@@ -346,12 +379,21 @@ public class OriginalPosterProvider : IRemoteImageProvider, IHasOrder
 
     public IEnumerable<ImageType> GetSupportedImages(BaseItem item)
     {
-        return new[] { ImageType.Primary, ImageType.Logo };
+        if (Plugin.Instance?.Configuration.EnableOriginalLogo == true)
+            return new[] { ImageType.Primary, ImageType.Logo };
+
+        return new[] { ImageType.Primary };
     }
 
     public bool Supports(BaseItem item, ImageType imageType)
     {
-        return (imageType == ImageType.Primary || imageType == ImageType.Logo) && Supports(item);
+        if (!Supports(item))
+            return false;
+
+        if (imageType == ImageType.Primary)
+            return true;
+
+        return imageType == ImageType.Logo && Plugin.Instance?.Configuration.EnableOriginalLogo == true;
     }
 
     public Task<HttpResponseInfo> GetImageResponse(string url, CancellationToken cancellationToken)

@@ -71,8 +71,10 @@ public class LanguageCacheManager
             if (string.IsNullOrWhiteSpace(json))
                 return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            return _jsonSerializer.DeserializeFromString<Dictionary<string, string>>(json)
-                   ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var loadedCache = _jsonSerializer.DeserializeFromString<Dictionary<string, string>>(json);
+            return loadedCache != null
+                ? new Dictionary<string, string>(loadedCache, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
         catch (Exception ex)
         {

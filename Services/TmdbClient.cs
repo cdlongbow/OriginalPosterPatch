@@ -2,6 +2,7 @@
 using MediaBrowser.Common.Net;
 using MediaBrowser.Model.Serialization;
 using System;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -41,7 +42,9 @@ public class TmdbClient
         if (string.IsNullOrWhiteSpace(type))
             throw new ArgumentException("Type cannot be null or empty.", nameof(type));
 
-        var url = $"{BaseUrl}/{type}/{tmdbId}?api_key={_apiKey}";
+        var encodedApiKey = Uri.EscapeDataString(_apiKey);
+        var encodedTmdbId = Uri.EscapeDataString(tmdbId.Trim());
+        var url = $"{BaseUrl}/{type}/{encodedTmdbId}?api_key={encodedApiKey}";
 
         var options = new HttpRequestOptions
         {
@@ -53,7 +56,8 @@ public class TmdbClient
         using (var response = await _httpClient.GetResponse(options).ConfigureAwait(false))
         using (var stream = response.Content)
         {
-            return await _jsonSerializer.DeserializeFromStreamAsync<TmdbItemDetails>(stream).ConfigureAwait(false);
+            return await _jsonSerializer.DeserializeFromStreamAsync<TmdbItemDetails>(stream).ConfigureAwait(false)
+                   ?? new TmdbItemDetails();
         }
     }
 
@@ -72,20 +76,23 @@ public class TmdbClient
         if (string.IsNullOrWhiteSpace(type))
             throw new ArgumentException("Type cannot be null or empty.", nameof(type));
 
+        var encodedApiKey = Uri.EscapeDataString(_apiKey);
+        var normalizedLanguage = NormalizeImageLanguage(language);
+        var encodedLanguage = Uri.EscapeDataString(normalizedLanguage);
         string url;
 
         // 处理播出季格式 "SeriesId_S<SeasonNumber>" -> "tv/{seriesId}/season/{seasonNumber}"
         if (type == "tv_season")
         {
             var parts = tmdbId.Split(new[] { "_S" }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 2 && !string.IsNullOrEmpty(parts[0]) && !string.IsNullOrEmpty(parts[1]))
+            if (parts.Length == 2
+                && int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var seriesId)
+                && int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var seasonNumber))
             {
-                var seriesId = parts[0];
-                var seasonNumber = parts[1];
                 var seasonPath = $"tv/{seriesId}/season/{seasonNumber}";
                 url = $"{BaseUrl}/{seasonPath}/images?" +
-                      $"api_key={_apiKey}&" +
-                      $"language={language},null";
+                      $"api_key={encodedApiKey}&" +
+                      $"language={encodedLanguage},null";
             }
             else
             {
@@ -94,9 +101,10 @@ public class TmdbClient
         }
         else
         {
-            url = $"{BaseUrl}/{type}/{tmdbId}/images?" +
-                  $"api_key={_apiKey}&" +
-                  $"language={language},null";
+            var encodedTmdbId = Uri.EscapeDataString(tmdbId.Trim());
+            url = $"{BaseUrl}/{type}/{encodedTmdbId}/images?" +
+                  $"api_key={encodedApiKey}&" +
+                  $"language={encodedLanguage},null";
         }
 
         var options = new HttpRequestOptions
@@ -109,7 +117,24 @@ public class TmdbClient
         using (var response = await _httpClient.GetResponse(options).ConfigureAwait(false))
         using (var stream = response.Content)
         {
-            return await _jsonSerializer.DeserializeFromStreamAsync<TmdbImageResult>(stream).ConfigureAwait(false);
+            return await _jsonSerializer.DeserializeFromStreamAsync<TmdbImageResult>(stream).ConfigureAwait(false)
+                   ?? new TmdbImageResult();
         }
+    }
+
+    private static string NormalizeImageLanguage(string language)
+    {
+        if (string.IsNullOrWhiteSpace(language))
+            return "en";
+
+        var normalized = language.Trim();
+        if (string.Equals(normalized, "cn", StringComparison.OrdinalIgnoreCase))
+            return "zh";
+
+        var separatorIndex = normalized.IndexOf('-');
+        if (separatorIndex > 0)
+            normalized = normalized.Substring(0, separatorIndex);
+
+        return normalized.ToLowerInvariant();
     }
 }
