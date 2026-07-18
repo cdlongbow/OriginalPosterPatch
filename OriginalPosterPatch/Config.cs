@@ -14,5 +14,5 @@ public class Config : EditableOptionsBase
 
     [DisplayName("启用简繁区分")]
     [Description("区分简体中文和繁体中文海报")]
-    public bool EnableZhSplit { get; set; } = false;
+    public bool EnableZhSplit { get; set; } = true;
 }
