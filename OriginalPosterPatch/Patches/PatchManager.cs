@@ -154,20 +154,34 @@ public static class PatchManager
         {
             var resultProp = __result.GetType().GetProperty("Result");
             var movieData = resultProp?.GetValue(__result);
-            if (movieData == null) return;
+            if (movieData == null)
+            {
+                _log?.Debug("[OPPatch] GetMovieInfoPostfix: movieData is null");
+                return;
+            }
+
+            var allProps = movieData.GetType().GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                .Select(p => p.Name).ToArray();
+            _log?.Debug("[OPPatch] GetMovieInfoPostfix: available props={0}", string.Join(",", allProps));
 
             var idProp = movieData.GetType().GetProperty("id");
             var langProp = movieData.GetType().GetProperty("original_language",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
-            if (idProp == null || langProp == null) return;
+            if (idProp == null || langProp == null)
+            {
+                _log?.Debug("[OPPatch] GetMovieInfoPostfix: idProp={0}, langProp={1}", idProp != null, langProp != null);
+                return;
+            }
 
             var id = idProp.GetValue(movieData)?.ToString();
             var origLang = langProp.GetValue(movieData)?.ToString();
+            _log?.Debug("[OPPatch] GetMovieInfoPostfix: id={0}, origLang={1}", id ?? "null", origLang ?? "null");
+
             if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(origLang))
             {
                 var normalized = origLang.Trim().ToLowerInvariant();
                 OriginalLanguageByTmdbId[id] = normalized == "cn" ? "zh" : normalized;
-                _log?.Debug("[OPPatch] Movie original_language {0} -> {1}", id, normalized);
+                _log?.Info("[OPPatch] Movie original_language {0} -> {1}", id, normalized);
             }
         }
         catch (Exception ex)
@@ -255,14 +269,32 @@ public static class PatchManager
         if (string.IsNullOrWhiteSpace(prefLang)) prefLang = "en";
 
         var origLang = ResolveOriginalLanguage(item);
+        _log?.Debug("[OPPatch] Postfix: item={0}, prefLang={1}, origLang={2}",
+            item.Name, prefLang, origLang ?? "null");
 
         __result = __result.ContinueWith(task =>
         {
             try
             {
-                var imgs = task.Result;
-                if (imgs == null) return Enumerable.Empty<RemoteImageInfo>();
-                return Sort(imgs, prefLang, origLang);
+                var imgs = task.Result?.ToList();
+                if (imgs == null || imgs.Count == 0) return Enumerable.Empty<RemoteImageInfo>();
+
+                if (_log != null)
+                {
+                    var langs = imgs.GroupBy(i => i.Language ?? "(none)")
+                        .Select(g => $"{g.Key}:{g.Count()}");
+                    _log.Debug("[OPPatch] Postfix: before sort languages={0}", string.Join(", ", langs));
+                }
+
+                var sorted = Sort(imgs, prefLang, origLang).ToList();
+
+                if (_log != null)
+                {
+                    var top5 = sorted.Take(5).Select(i => $"{i.Language ?? "(none)"}({i.CommunityRating})");
+                    _log.Debug("[OPPatch] Postfix: after sort top5={0}", string.Join(" > ", top5));
+                }
+
+                return sorted;
             }
             catch
             {
