@@ -4,7 +4,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using HarmonyLib;
-using MediaBrowser.Common.Plugins;
+
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -100,7 +100,7 @@ public static class PatchManager
             if (method == null || prop == null) return null;
 
             var provider = prop.GetValue(null);
-            var task = method.Invoke(provider, new object[] { tmdbId.Trim(), null, System.Threading.CancellationToken.None }) as Task;
+            var task = method.Invoke(provider, new object[] { tmdbId.Trim(), null!, System.Threading.CancellationToken.None }) as Task;
             task?.GetAwaiter().GetResult();
             if (task == null) return null;
 
