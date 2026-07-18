@@ -20,5 +20,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: OriginalPosterPatch
-          path: OriginalPosterPatch/bin/Release/net8.0/Merged-OriginalPosterPatch.dll
+          path: OriginalPosterPatch/bin/Release/net8.0/OriginalPosterPatch.dll
           if-no-files-found: error
