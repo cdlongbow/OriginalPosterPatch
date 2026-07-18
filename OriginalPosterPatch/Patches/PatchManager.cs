@@ -319,21 +319,22 @@ public static class PatchManager
         var baseScore = img.CommunityRating ?? 0;
 
         if (string.IsNullOrWhiteSpace(lang))
-            return baseScore + 5;
+            return baseScore + 0;
 
         if (_zhSplit && isZh)
         {
             if (img.Language?.StartsWith("zh-CN", StringComparison.OrdinalIgnoreCase) == true ||
                 img.Language?.StartsWith("zh-SG", StringComparison.OrdinalIgnoreCase) == true)
-                return baseScore + 30;
+                return baseScore + 100;
             if (img.Language?.StartsWith("zh-TW", StringComparison.OrdinalIgnoreCase) == true ||
                 img.Language?.StartsWith("zh-HK", StringComparison.OrdinalIgnoreCase) == true)
-                return baseScore + 25;
+                return baseScore + 80;
         }
 
-        if (lang == prefBase) return baseScore + 20;
-        if (!string.IsNullOrWhiteSpace(origBase) && lang == origBase) return baseScore + 15;
+        if (lang == prefBase) return baseScore + 60;
+        if (!string.IsNullOrWhiteSpace(origBase) && lang == origBase) return baseScore + 30;
+        if (lang == "en") return baseScore + 10;
 
-        return baseScore + 10;
+        return baseScore + 5;
     }
 }
