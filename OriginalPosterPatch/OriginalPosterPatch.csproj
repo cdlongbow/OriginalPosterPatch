@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>OriginalPosterPatch</AssemblyName>
     <RootNamespace>OriginalPosterPatch</RootNamespace>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Lib.Harmony" Version="2.3.3" />

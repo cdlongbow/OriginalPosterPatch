@@ -14,6 +14,7 @@ public class Plugin : BasePlugin, IHasThumbImage
     public static Plugin? Instance { get; private set; }
     private readonly ILogger _log;
     private Config _config = new();
+    private bool _configLoaded;
 
     public override Guid Id => new Guid("A3B7C1D2-E5F6-7890-ABCD-EF1234567890");
     public override string Name => "Original Poster Patch";
@@ -24,22 +25,25 @@ public class Plugin : BasePlugin, IHasThumbImage
         Instance = this;
         _log = logManager.GetLogger(Name);
         _log.Info("[OPPatch] 加载中");
-        LoadConfig();
+
+        TryLoadConfig();
+
         PatchManager.Init(_log);
         PatchManager.Configure(_config.Enabled, _config.EnableZhSplit);
     }
 
-    private string ConfigPath => Path.Combine(DataFolderPath, "config.json");
+    private string? ConfigPath => string.IsNullOrEmpty(DataFolderPath) ? null : Path.Combine(DataFolderPath, "config.json");
 
-    private void LoadConfig()
+    private void TryLoadConfig()
     {
         try
         {
             var path = ConfigPath;
-            if (File.Exists(path))
+            if (path != null && File.Exists(path))
             {
                 var json = File.ReadAllText(path);
                 _config = JsonSerializer.Deserialize<Config>(json) ?? new Config();
+                _configLoaded = true;
             }
         }
         catch (Exception ex)
@@ -51,12 +55,15 @@ public class Plugin : BasePlugin, IHasThumbImage
     public void SaveConfig(Config config)
     {
         _config = config;
+        _configLoaded = true;
         try
         {
-            var dir = Path.GetDirectoryName(ConfigPath);
+            var path = ConfigPath;
+            if (path == null) return;
+            var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             var json = JsonSerializer.Serialize(_config, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(ConfigPath, json);
+            File.WriteAllText(path, json);
             PatchManager.Configure(_config.Enabled, _config.EnableZhSplit);
         }
         catch (Exception ex)
@@ -65,7 +72,11 @@ public class Plugin : BasePlugin, IHasThumbImage
         }
     }
 
-    public Config GetConfig() => _config;
+    public Config GetConfig()
+    {
+        if (!_configLoaded) TryLoadConfig();
+        return _config;
+    }
 
     public Stream GetThumbImage()
     {
