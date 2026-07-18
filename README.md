@@ -21,8 +21,8 @@
 # 下载：https://dotnet.microsoft.com/download/dotnet/8.0
 
 # 克隆并编译
-git clone -b OriginalPosterPatch https://github.com/cdlongbow/OriginalPoster.git
-cd OriginalPoster
+git clone -b main https://github.com/cdlongbow/OriginalPosterPatch.git
+cd OriginalPosterPatch
 dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release
 ```
 
