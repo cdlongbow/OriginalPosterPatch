@@ -27,10 +27,22 @@ public class Plugin : BasePlugin<BasePluginConfiguration>, IHasThumbImage
         {
             var name = new AssemblyName(args.Name).Name;
             if (name != "0Harmony") return null;
-            var pluginDir = Path.GetDirectoryName(typeof(Plugin).Assembly.Location);
-            if (string.IsNullOrEmpty(pluginDir)) return null;
-            var path = Path.Combine(pluginDir, "0Harmony.dll");
-            return File.Exists(path) ? Assembly.LoadFrom(path) : null;
+            var entryDir = Path.GetDirectoryName(Assembly.GetEntryAssembly()?.Location);
+            if (entryDir == null) return null;
+            var candidates = new[]
+            {
+                Path.Combine(entryDir, "0Harmony.dll"),
+                Path.Combine(entryDir, "plugins", "0Harmony.dll"),
+                Path.Combine(entryDir, "..", "plugins", "0Harmony.dll"),
+                Path.Combine(entryDir, "..", "programdata", "plugins", "0Harmony.dll"),
+            };
+            foreach (var c in candidates)
+            {
+                var path = Path.GetFullPath(c);
+                if (File.Exists(path))
+                    return Assembly.LoadFrom(path);
+            }
+            return null;
         };
     }
 
