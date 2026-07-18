@@ -21,11 +21,15 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: 还原并构建新插件
-        run: dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release
+      - name: 还原新插件
+        run: dotnet restore OriginalPosterPatch/OriginalPosterPatch.csproj
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: OriginalPosterPatch
-          path: OriginalPosterPatch/bin/Release/net8.0/OriginalPosterPatch.dll
-          if-no-files-found: error
+      - name: 列出已还原的包
+        run: |
+          echo "=== MediaBrowser.Server.Core ===" && ls ~/.nuget/packages/mediabrowser.server.core/ 2>/dev/null || echo "not found"
+          echo "=== MediaBrowser.Common ===" && ls ~/.nuget/packages/mediabrowser.common/ 2>/dev/null || echo "not found"
+          echo "=== Emby.Web.GenericEdit ===" && ls ~/.nuget/packages/emby.web.genericedit/ 2>/dev/null || echo "not found"
+          echo "=== Lib.Harmony ===" && ls ~/.nuget/packages/lib.harmony/ 2>/dev/null || echo "not found"
+
+      - name: 构建新插件
+        run: dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release --no-restore 2>&1
