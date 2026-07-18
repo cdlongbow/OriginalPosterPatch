@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Reflection;
 using System.Text.Json;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
@@ -20,6 +21,19 @@ public class Plugin : BasePlugin<BasePluginConfiguration>, IHasThumbImage
     private Config _config = new();
     private bool _configLoaded;
 
+    static Plugin()
+    {
+        AppDomain.CurrentDomain.AssemblyResolve += (_, args) =>
+        {
+            var name = new AssemblyName(args.Name).Name;
+            if (name != "0Harmony") return null;
+            var pluginDir = Path.GetDirectoryName(typeof(Plugin).Assembly.Location);
+            if (string.IsNullOrEmpty(pluginDir)) return null;
+            var path = Path.Combine(pluginDir, "0Harmony.dll");
+            return File.Exists(path) ? Assembly.LoadFrom(path) : null;
+        };
+    }
+
     public override Guid Id => new Guid("A3B7C1D2-E5F6-7890-ABCD-EF1234567890");
     public override string Name => "Original Poster Patch";
     public override string Description => "优先首选语言海报，无则回退原语言海报";
@@ -33,8 +47,15 @@ public class Plugin : BasePlugin<BasePluginConfiguration>, IHasThumbImage
 
         TryLoadConfig();
 
-        PatchManager.Init(_log);
-        PatchManager.Configure(_config.Enabled, _config.EnableZhSplit);
+        try
+        {
+            PatchManager.Init(_log);
+            PatchManager.Configure(_config.Enabled, _config.EnableZhSplit);
+        }
+        catch (Exception ex)
+        {
+            _log.Error("[OPPatch] Harmony init failed: {0}", ex.Message);
+        }
     }
 
     private string ConfigPath => Path.Combine(_appPaths.PluginConfigurationsPath, Name, "config.json");
