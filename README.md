@@ -12,6 +12,48 @@
 | 零配置 | 无需 TMDB API Key，复用 Emby 内置 MovieDb 提供者 |
 | 全类型支持 | 电影 / 剧集 / 播出季 / 单集 / 合集 |
 
+## 编译
+
+### 本地编译（Windows）
+
+```powershell
+# 安装 .NET 8 SDK（如未安装）
+# 下载：https://dotnet.microsoft.com/download/dotnet/8.0
+
+# 克隆并编译
+git clone -b OriginalPosterPatch https://github.com/cdlongbow/OriginalPoster.git
+cd OriginalPoster
+dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release
+```
+
+编译产物在 `OriginalPosterPatch/bin/Release/net8.0/` 目录下，将 `Merged-OriginalPosterPatch.dll`（ILRepack 合并后的单文件）放入 Emby 的 `plugins` 目录即可。
+
+> Windows 环境下编译会自动触发 ILRepack 将 `0Harmony.dll` 合并到输出 DLL。如在其他平台编译，需要手动将 `0Harmony.dll` 和 `OriginalPosterPatch.dll` 一起放入 plugins 目录。
+
+### 依赖说明
+
+| 包 | 版本 | 说明 |
+|----|------|------|
+| `Lib.Harmony` | 2.3.6 | Harmony 运行时库，用于运行时方法补丁 |
+| `MediaBrowser.Common` | 4.9.1.90 | Emby 公共库（含 `BasePluginSimpleUI`） |
+| `MediaBrowser.Server.Core` | 4.9.1.90 | Emby 服务端核心库（含 `BasePluginSimpleUI` 在 `MediaBrowser.Controller` 中） |
+| `ILRepack` | 2.0.42 | 程序集合并工具，将 `0Harmony.dll` 合并到输出 |
+
+### 常见编译问题
+
+**`BasePluginSimpleUI` 找不到**
+- 该类在 `MediaBrowser.Controller.dll` 的 `MediaBrowser.Controller.Plugins` 命名空间下
+- NuGet 包 `MediaBrowser.Server.Core` 中已包含，无需额外引用
+
+**`0Harmony.dll` 加载失败**
+- 插件运行时需 `0Harmony.dll` 在 plugins 目录或 Emby 系统目录下
+- 推荐在 Windows 编译，ILRepack 会自动合并到输出，部署只需一个 DLL
+- 如在其他平台编译，需手动复制 `0Harmony.dll` 到 plugins 目录
+
+**`GetAvailableRemoteImages` 方法签名不匹配**
+- Emby 4.10 中该方法签名：`(BaseItem, LibraryOptions, RemoteImageQuery, CancellationToken)`
+- 无 `IDirectoryService` 参数，Harmony Prefix/Postfix 需对应匹配
+
 ## 安装
 
 1. 下载 `Merged-OriginalPosterPatch.dll`（GitHub Actions 构建产物）
