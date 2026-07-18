@@ -9,7 +9,6 @@ using HarmonyLib;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
-using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Logging;
@@ -208,7 +207,7 @@ public static class PatchManager
 
     [HarmonyPrefix]
     private static void PrefixBaseItem(BaseItem item, LibraryOptions libraryOptions, ref RemoteImageQuery query,
-        IDirectoryService directoryService, CancellationToken cancellationToken)
+        CancellationToken cancellationToken)
     {
         DoPrefix(item, ref query);
     }
@@ -216,7 +215,7 @@ public static class PatchManager
     [HarmonyPrefix]
     private static void PrefixIHasProviderIds(MediaBrowser.Model.Entities.IHasProviderIds item,
         LibraryOptions libraryOptions, ref RemoteImageQuery query,
-        IDirectoryService directoryService, CancellationToken cancellationToken)
+        CancellationToken cancellationToken)
     {
         DoPrefix(item as BaseItem, ref query);
     }
@@ -232,7 +231,7 @@ public static class PatchManager
 
     [HarmonyPostfix]
     private static void PostfixBaseItem(BaseItem item, LibraryOptions libraryOptions, RemoteImageQuery query,
-        IDirectoryService directoryService, CancellationToken cancellationToken,
+        CancellationToken cancellationToken,
         ref Task<IEnumerable<RemoteImageInfo>> __result)
     {
         DoPostfix(item, libraryOptions, ref __result);
@@ -241,7 +240,7 @@ public static class PatchManager
     [HarmonyPostfix]
     private static void PostfixIHasProviderIds(MediaBrowser.Model.Entities.IHasProviderIds item,
         LibraryOptions libraryOptions, RemoteImageQuery query,
-        IDirectoryService directoryService, CancellationToken cancellationToken,
+        CancellationToken cancellationToken,
         ref Task<IEnumerable<RemoteImageInfo>> __result)
     {
         DoPostfix(item as BaseItem, libraryOptions, ref __result);
