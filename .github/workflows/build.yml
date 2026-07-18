@@ -22,14 +22,12 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: 还原依赖
-        run: dotnet restore OriginalPosterPatch/OriginalPosterPatch.csproj
-
-      - name: 构建
-        run: dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release --no-restore
+      - name: 还原并构建
+        run: dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release
 
       - name: 上传 DLL
         uses: actions/upload-artifact@v4
         with:
           name: OriginalPosterPatch
           path: OriginalPosterPatch/bin/Release/net8.0/OriginalPosterPatch.dll
+          if-no-files-found: error
