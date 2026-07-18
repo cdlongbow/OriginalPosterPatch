@@ -29,6 +29,7 @@ public static class PatchManager
     private static MethodInfo? _getMovieInfo;
     private static MethodInfo? _ensureSeriesInfo;
     private static MethodInfo? _getAvailableRemoteImages;
+    private static bool _useIHasProviderIds;
 
     private static readonly ConcurrentDictionary<string, string> OriginalLanguageByTmdbId = new();
     private static readonly AsyncLocal<ContextItem?> CurrentContext = new();
@@ -50,15 +51,37 @@ public static class PatchManager
             var pm = embyProviders.GetType("Emby.Providers.Manager.ProviderManager", false);
             if (pm == null) { log.Warn("[OPPatch] ProviderManager not found"); return; }
 
-            _getAvailableRemoteImages = pm.GetMethod("GetAvailableRemoteImages",
-                BindingFlags.Instance | BindingFlags.Public, null,
-                new[] { typeof(BaseItem), typeof(LibraryOptions), typeof(RemoteImageQuery),
-                    typeof(IDirectoryService), typeof(CancellationToken) }, null);
-            if (_getAvailableRemoteImages == null) { log.Warn("[OPPatch] GetAvailableRemoteImages not found"); return; }
+            var allMethods = pm.GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                .Where(m => m.Name == "GetAvailableRemoteImages").ToList();
+            if (allMethods.Count == 0) { log.Warn("[OPPatch] GetAvailableRemoteImages not found"); return; }
 
-            _harmony.Patch(_getAvailableRemoteImages,
-                new HarmonyMethod(typeof(PatchManager), nameof(Prefix)),
-                new HarmonyMethod(typeof(PatchManager), nameof(Postfix)));
+            foreach (var m in allMethods)
+            {
+                var parms = m.GetParameters().Select(p => p.ParameterType.Name).ToList();
+                log.Info("[OPPatch] Found GetAvailableRemoteImages({0})", string.Join(", ", parms));
+                if (parms.Count >= 4 && parms[0] == "BaseItem" && parms[2] == "RemoteImageQuery")
+                {
+                    _getAvailableRemoteImages = m;
+                    _useIHasProviderIds = false;
+                    break;
+                }
+                if (parms.Count >= 4 && parms[0] == "IHasProviderIds" && parms[2] == "RemoteImageQuery")
+                {
+                    _getAvailableRemoteImages = m;
+                    _useIHasProviderIds = true;
+                    break;
+                }
+            }
+            if (_getAvailableRemoteImages == null) { log.Warn("[OPPatch] GetAvailableRemoteImages signature not matched"); return; }
+
+            var prefixMethod = _useIHasProviderIds
+                ? new HarmonyMethod(typeof(PatchManager), nameof(PrefixIHasProviderIds))
+                : new HarmonyMethod(typeof(PatchManager), nameof(PrefixBaseItem));
+            var postfixMethod = _useIHasProviderIds
+                ? new HarmonyMethod(typeof(PatchManager), nameof(PostfixIHasProviderIds))
+                : new HarmonyMethod(typeof(PatchManager), nameof(PostfixBaseItem));
+
+            _harmony.Patch(_getAvailableRemoteImages, prefixMethod, postfixMethod);
             log.Info("[OPPatch] GetAvailableRemoteImages patched");
 
             _movieDbAssembly = AppDomain.CurrentDomain.GetAssemblies()
@@ -184,20 +207,47 @@ public static class PatchManager
     }
 
     [HarmonyPrefix]
-    private static void Prefix(BaseItem item, LibraryOptions libraryOptions, ref RemoteImageQuery query,
+    private static void PrefixBaseItem(BaseItem item, LibraryOptions libraryOptions, ref RemoteImageQuery query,
         IDirectoryService directoryService, CancellationToken cancellationToken)
+    {
+        DoPrefix(item, ref query);
+    }
+
+    [HarmonyPrefix]
+    private static void PrefixIHasProviderIds(MediaBrowser.Model.Entities.IHasProviderIds item,
+        LibraryOptions libraryOptions, ref RemoteImageQuery query,
+        IDirectoryService directoryService, CancellationToken cancellationToken)
+    {
+        DoPrefix(item as BaseItem, ref query);
+    }
+
+    private static void DoPrefix(BaseItem? item, ref RemoteImageQuery query)
     {
         if (!_enabled || item == null || query == null) return;
         query.IncludeAllLanguages = true;
-
         var tmdbId = item.GetProviderId(MetadataProviders.Tmdb);
         var imdbId = item.GetProviderId(MetadataProviders.Imdb);
         CurrentContext.Value = new ContextItem { TmdbId = tmdbId, ImdbId = imdbId };
     }
 
     [HarmonyPostfix]
-    private static void Postfix(BaseItem item, LibraryOptions libraryOptions, RemoteImageQuery query,
+    private static void PostfixBaseItem(BaseItem item, LibraryOptions libraryOptions, RemoteImageQuery query,
         IDirectoryService directoryService, CancellationToken cancellationToken,
+        ref Task<IEnumerable<RemoteImageInfo>> __result)
+    {
+        DoPostfix(item, libraryOptions, ref __result);
+    }
+
+    [HarmonyPostfix]
+    private static void PostfixIHasProviderIds(MediaBrowser.Model.Entities.IHasProviderIds item,
+        LibraryOptions libraryOptions, RemoteImageQuery query,
+        IDirectoryService directoryService, CancellationToken cancellationToken,
+        ref Task<IEnumerable<RemoteImageInfo>> __result)
+    {
+        DoPostfix(item as BaseItem, libraryOptions, ref __result);
+    }
+
+    private static void DoPostfix(BaseItem? item, LibraryOptions libraryOptions,
         ref Task<IEnumerable<RemoteImageInfo>> __result)
     {
         if (!_enabled || item == null || __result == null) return;
