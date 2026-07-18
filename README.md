@@ -1,83 +1,56 @@
-# Original Poster
+# Original Poster Patch
 
-> **Emby Plugin**
-
-### **自动获取TMDB的 `电影` / `剧集` / `合集` / `LOGO` 原语言海报**
-
-![OriginalPosterLogo](https://raw.githubusercontent.com/Swiftfrog/swiftfrog.github.io/master/OriginalPostLogo.png)
-
----
+> **Emby Plugin** — Harmony Patch 方式实现海报语言优先级排序，无需独立 TMDB API Key。
 
 ## 功能
 
 | 功能 | 说明 |
-|----------|----------|
-| 🎬 **原语言海报** | 自动获取原语言的`电影`，`剧集`，`播出季`，`合集`的海报 |
-| 🖼️ **原语言Logo** | 自动获取原语言的Logo，提升媒体库视觉统一性 |
-| ⚙️ **用户自定义** | 可开启/关闭插件、Logo、测试模式 |
-
-> **大陆&港澳台** 电影统一请求 `zh` 语言海报。因为`港澳台`很多电影海报在TMDB并未被区分为`zh-HK`，`zh-TW`，故妥协。
+|------|------|
+| 首选语言优先 | 优先显示媒体库设置的「首选图像下载语言」的海报 |
+| 原语言回退 | 首选语言无图时，自动回退到 TMDB 原语言海报 |
+| 简繁区分 | 简体中文（zh-CN）优先于繁体中文（zh-TW/zh-HK） |
+| 零配置 | 无需 TMDB API Key，复用 Emby 内置 MovieDb 提供者 |
+| 全类型支持 | 电影 / 剧集 / 播出季 / 单集 / 合集 |
 
 ## 安装
 
-1. 下载 `OriginalPoster.dll`。
-2.  `OriginalPoster.dll` 放到插件目录，Emby Server的plugins下。
-3.  重启 Emby 服务器。
-4.  `设置` -> `插件` -> `OriginalPoster`, 启用插件和配置插件。
-5.  `媒体库中`去选中`OriginalPoster`，并置顶。根据Emby规则，那个刮削插件置顶，那个插件返回的海报优先。
-6.  `媒体库中`中的 `首选图像下载语言` **留空，留空，留空**
+1. 下载 `Merged-OriginalPosterPatch.dll`（GitHub Actions 构建产物）
+2. 放入 Emby Server 的 `plugins` 目录
+3. 重启 Emby
+4. 进入 `设置` → `插件` → `Original Poster Patch`，确认已加载
 
-进入 **“插件设置” → “Original Poster”**：
+## 配置
 
-| 配置项 | 建议值 | 说明 |
+在 Emby 插件设置页面中：
+
+| 配置项 | 默认值 | 说明 |
 |--------|--------|------|
-| **启用插件** | 开启 | 启用整个插件功能 |
-| **启用原语言 Logo** | 开启 | 同时获取原语言 Logo（推荐） |
-| **TMDB API KEY** | `您的API密钥` | **必填**，从 TMDB 获取 |
-| **海报选择策略** | `优先原语言` | 推荐选项，优先显示原语言海报 |
-| **测试模式** | 关闭 | 仅调试时开启，会返回固定测试图 |
+| **启用** | 开启 | 开启海报语言优先级排序 |
+| **启用简繁区分** | 开启 | 简体中文海报优先于繁体中文 |
 
-## 测试示例
+媒体库设置中，将 `首选图像下载语言` 设为期望的语言（如 `zh`），插件会自动按「首选语言 → 原语言 → 其他」排序。
 
-| 电影 | 制片国 | 插件行为 |
-|------|--------|----------|
-| 《拯救大兵瑞恩》 | `US` | → `en-US` 海报 |
-| 《千与千寻》 | `JP` | → `ja-JP` 海报 |
-| 《魔女》 | `KR` | → `ko-KR` 海报 |
-| 《鹿鼎记》 | `HK` | → `zh` 海报（港产片） |
-| 《英雄》 | `CN` | → `zh` 海报（国产片） |
-| 《大话西游》 | `HK` | → `zh` 海报（港产片） |
+## 排序逻辑
 
-## ⚠️ 常见问题与解答
+| 海报语言 | 优先级 |
+|----------|--------|
+| zh-CN / zh-SG（简体中文） | 最高 |
+| zh-TW / zh-HK（繁体中文） | 高 |
+| zh（通用中文） | 中高 |
+| 原语言（如 ko / ja） | 中 |
+| en（英文） | 低 |
+| 其他 | 更低 |
+| 无语言文字海报 | 最低 |
 
-### ❓ 为什么我看到的还是英文海报？
-- 检查 **TMDB API Key** 是否填写正确
-- 检查 **是否开启插件**
-- 尝试 **刷新元数据**（勾选“替换所有图像”）
+## 技术说明
 
-### ❓ 《鹿鼎记》是香港电影，为什么显示的海报语言是 `zh` 而不是 `zh-HK`？
-- 这是 **妥协的设计**：很多港澳台海报在TMDB都被归类为了`zh-CN`,而不是详细区分为`zh-HK`/`zh-TW`/`zh-SG`。
-- 需要严格区分，还请自行fork，切换注释代码。
-
-### ❓ 插件支持剧集吗？
-- **支持！**  
-- 插件自动识别剧集（Series）和播出季（Season），并从剧集获取原语言。
-
-### ❓ 插件会频繁调用 TMDB API 吗？
-- 不会  
-- 首次刷新时调用一次
-- 后续刷新使用缓存（Emby 内部机制）
-- 每个媒体项最多调用 2 次 API（详情 + 图像）
+- 使用 Harmony Patch 拦截 `ProviderManager.GetAvailableRemoteImages`
+- 通过 Harmony Postfix 补丁捕获 TMDB `GetMovieInfo` / `EnsureSeriesInfo` 返回的 `original_language`
+- 无需额外 TMDB API Key，复用 Emby 内置的 MovieDb 提供者
+- 构建时 ILRepack 合并 `0Harmony.dll`，部署只需单个 DLL
 
 ## 许可证
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-> 本项目采用 **GPL-3.0 许可证**。任何基于本项目代码的分发（包括商业用途）**必须以相同许可证开源全部源代码**。  
-> 欢迎使用、改进和分享，但请勿闭源售卖！
-
-## 联系作者
-
-如有问题、建议或贡献，请提交 Issue 或联系： 
-
-如果喜欢，请给项目一个 Star！
+本项目采用 **GPL-3.0 许可证**。
