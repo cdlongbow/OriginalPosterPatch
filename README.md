@@ -26,7 +26,7 @@ cd OriginalPoster
 dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release
 ```
 
-编译产物在 `OriginalPosterPatch/bin/Release/net8.0/` 目录下，将 `Merged-OriginalPosterPatch.dll`（ILRepack 合并后的单文件）放入 Emby 的 `plugins` 目录即可。
+编译产物在 `OriginalPosterPatch/bin/Release/net8.0/` 目录下，将 `OriginalPosterPatch.dll`（ILRepack 合并后的单文件）放入 Emby 的 `plugins` 目录即可。
 
 > Windows 环境下编译会自动触发 ILRepack 将 `0Harmony.dll` 合并到输出 DLL。如在其他平台编译，需要手动将 `0Harmony.dll` 和 `OriginalPosterPatch.dll` 一起放入 plugins 目录。
 
@@ -56,7 +56,7 @@ dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release
 
 ## 安装
 
-1. 下载 `Merged-OriginalPosterPatch.dll`（GitHub Actions 构建产物）
+1. 下载 `OriginalPosterPatch.dll`（GitHub Actions 构建产物）
 2. 放入 Emby Server 的 `plugins` 目录
 3. 重启 Emby
 4. 进入 `设置` → `插件` → `Original Poster Patch`，确认已加载
