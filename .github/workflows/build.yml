@@ -14,22 +14,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: 8.0.x }
 
-      - name: 1. 构建原始项目（验证包）
-        run: dotnet build OriginalPoster.csproj -c Release 2>&1
-
-      - name: 2. 还原新插件
-        run: dotnet restore OriginalPosterPatch/OriginalPosterPatch.csproj 2>&1
-
-      - name: 3. 查看Emby包内容
-        run: |
-          pkg=$(ls ~/.nuget/packages/mediabrowser.server.core/ 2>/dev/null | head -1)
-          echo "Server.Core version: $pkg"
-          if [ -n "$pkg" ]; then
-            dlls=$(find ~/.nuget/packages/mediabrowser.server.core/$pkg -name "*.dll" 2>/dev/null | head -20)
-            echo "$dlls"
-          fi
-          # Check which assembly has BasePluginSimpleUI
-          grep -r "BasePluginSimpleUI" ~/.nuget/packages/mediabrowser.*/ 2>/dev/null | head -10 || echo "Not found via grep"
-
-      - name: 4. 构建新插件
+      - name: 构建
         run: dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release 2>&1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OriginalPosterPatch
+          path: OriginalPosterPatch/bin/Release/net8.0/OriginalPosterPatch.dll
+          if-no-files-found: error
