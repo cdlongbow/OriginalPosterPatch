@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>OriginalPosterPatch</AssemblyName>
+    <RootNamespace>OriginalPosterPatch</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Harmony" Version="2.3.3" />
+    <PackageReference Include="MediaBrowser.Server.Core" Version="4.10.0.17" />
+  </ItemGroup>
+</Project>
