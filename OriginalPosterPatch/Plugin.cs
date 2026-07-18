@@ -2,17 +2,21 @@ using System;
 using System.IO;
 using System.Text.Json;
 using MediaBrowser.Common;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Logging;
+using MediaBrowser.Model.Plugins;
+using MediaBrowser.Model.Serialization;
 using OriginalPosterPatch.Patches;
 
 namespace OriginalPosterPatch;
 
-public class Plugin : BasePlugin, IHasThumbImage
+public class Plugin : BasePlugin<BasePluginConfiguration>, IHasThumbImage
 {
     public static Plugin? Instance { get; private set; }
     private readonly ILogger _log;
+    private readonly IApplicationPaths _appPaths;
     private Config _config = new();
     private bool _configLoaded;
 
@@ -20,8 +24,9 @@ public class Plugin : BasePlugin, IHasThumbImage
     public override string Name => "Original Poster Patch";
     public override string Description => "优先首选语言海报，无则回退原语言海报";
 
-    public Plugin(IApplicationHost appHost, ILogManager logManager)
+    public Plugin(IApplicationPaths appPaths, IXmlSerializer serializer, ILogManager logManager) : base(appPaths, serializer)
     {
+        _appPaths = appPaths;
         Instance = this;
         _log = logManager.GetLogger(Name);
         _log.Info("[OPPatch] 加载中");
@@ -32,14 +37,14 @@ public class Plugin : BasePlugin, IHasThumbImage
         PatchManager.Configure(_config.Enabled, _config.EnableZhSplit);
     }
 
-    private string? ConfigPath => string.IsNullOrEmpty(DataFolderPath) ? null : Path.Combine(DataFolderPath, "config.json");
+    private string ConfigPath => Path.Combine(_appPaths.PluginConfigurationsPath, Name, "config.json");
 
     private void TryLoadConfig()
     {
         try
         {
             var path = ConfigPath;
-            if (path != null && File.Exists(path))
+            if (File.Exists(path))
             {
                 var json = File.ReadAllText(path);
                 _config = JsonSerializer.Deserialize<Config>(json) ?? new Config();
@@ -59,10 +64,9 @@ public class Plugin : BasePlugin, IHasThumbImage
         try
         {
             var path = ConfigPath;
-            if (path == null) return;
             var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            var json = JsonSerializer.Serialize(_config, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(_config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(path, json);
             PatchManager.Configure(_config.Enabled, _config.EnableZhSplit);
         }
