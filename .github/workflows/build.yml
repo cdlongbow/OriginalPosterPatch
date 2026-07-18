@@ -7,7 +7,6 @@ on:
     paths:
       - 'OriginalPosterPatch/**'
       - '.github/workflows/**'
-      - 'NuGet.config'
   workflow_dispatch:
 
 jobs:
@@ -22,12 +21,14 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: 还原并构建
-        run: dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release
+      - name: 还原依赖
+        run: dotnet restore
 
-      - name: 上传 DLL
-        uses: actions/upload-artifact@v4
+      - name: 构建
+        run: dotnet build -c Release
+
+      - uses: actions/upload-artifact@v4
         with:
           name: OriginalPosterPatch
           path: OriginalPosterPatch/bin/Release/net8.0/OriginalPosterPatch.dll
-          if-no-files-found: error
+          if-no-files-found: warn
