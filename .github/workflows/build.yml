@@ -4,32 +4,32 @@ on:
   push:
     branches:
       - OriginalPosterPatch
-    paths:
-      - 'OriginalPosterPatch/**'
-      - '.github/workflows/**'
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: 8.0.x }
 
-      - name: 安装 .NET 8.0
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
+      - name: 1. 构建原始项目（验证包）
+        run: dotnet build OriginalPoster.csproj -c Release 2>&1
 
-      - name: 还原新插件
-        run: dotnet restore OriginalPosterPatch/OriginalPosterPatch.csproj
+      - name: 2. 还原新插件
+        run: dotnet restore OriginalPosterPatch/OriginalPosterPatch.csproj 2>&1
 
-      - name: 列出已还原的包
+      - name: 3. 查看Emby包内容
         run: |
-          echo "=== MediaBrowser.Server.Core ===" && ls ~/.nuget/packages/mediabrowser.server.core/ 2>/dev/null || echo "not found"
-          echo "=== MediaBrowser.Common ===" && ls ~/.nuget/packages/mediabrowser.common/ 2>/dev/null || echo "not found"
-          echo "=== Emby.Web.GenericEdit ===" && ls ~/.nuget/packages/emby.web.genericedit/ 2>/dev/null || echo "not found"
-          echo "=== Lib.Harmony ===" && ls ~/.nuget/packages/lib.harmony/ 2>/dev/null || echo "not found"
+          pkg=$(ls ~/.nuget/packages/mediabrowser.server.core/ 2>/dev/null | head -1)
+          echo "Server.Core version: $pkg"
+          if [ -n "$pkg" ]; then
+            dlls=$(find ~/.nuget/packages/mediabrowser.server.core/$pkg -name "*.dll" 2>/dev/null | head -20)
+            echo "$dlls"
+          fi
+          # Check which assembly has BasePluginSimpleUI
+          grep -r "BasePluginSimpleUI" ~/.nuget/packages/mediabrowser.*/ 2>/dev/null | head -10 || echo "Not found via grep"
 
-      - name: 构建新插件
-        run: dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release --no-restore 2>&1
+      - name: 4. 构建新插件
+        run: dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release 2>&1
