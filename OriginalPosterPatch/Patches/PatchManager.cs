@@ -1,17 +1,20 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using HarmonyLib;
-
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Providers;
+using MediaBrowser.Model.Serialization;
 
 namespace OriginalPosterPatch.Patches;
 
@@ -22,12 +25,19 @@ public static class PatchManager
     private static bool _enabled;
     private static bool _zhSplit;
 
-    // MovieDb 反射成员
-    private static PropertyInfo? _movieDbCurrent;
-    private static PropertyInfo? _seriesDbCurrent;
-    private static MethodInfo? _ensureMovieInfo;
+    private static Assembly? _movieDbAssembly;
+    private static MethodInfo? _getMovieInfo;
     private static MethodInfo? _ensureSeriesInfo;
-    private static MethodInfo? _getImages;
+    private static MethodInfo? _getAvailableRemoteImages;
+
+    private static readonly ConcurrentDictionary<string, string> OriginalLanguageByTmdbId = new();
+    private static readonly AsyncLocal<ContextItem?> CurrentContext = new();
+
+    private class ContextItem
+    {
+        public string? TmdbId { get; set; }
+        public string? ImdbId { get; set; }
+    }
 
     public static void Init(ILogger log)
     {
@@ -40,30 +50,50 @@ public static class PatchManager
             var pm = embyProviders.GetType("Emby.Providers.Manager.ProviderManager", false);
             if (pm == null) { log.Warn("[OPPatch] ProviderManager not found"); return; }
 
-            _getImages = pm.GetMethod("GetAvailableRemoteImages",
+            _getAvailableRemoteImages = pm.GetMethod("GetAvailableRemoteImages",
                 BindingFlags.Instance | BindingFlags.Public, null,
-                new[] { typeof(BaseItem), typeof(LibraryOptions), typeof(RemoteImageQuery), typeof(System.Threading.CancellationToken) }, null);
-            if (_getImages == null) { log.Warn("[OPPatch] GetAvailableRemoteImages not found"); return; }
+                new[] { typeof(BaseItem), typeof(LibraryOptions), typeof(RemoteImageQuery),
+                    typeof(IDirectoryService), typeof(CancellationToken) }, null);
+            if (_getAvailableRemoteImages == null) { log.Warn("[OPPatch] GetAvailableRemoteImages not found"); return; }
 
-            _harmony.Patch(_getImages,
+            _harmony.Patch(_getAvailableRemoteImages,
                 new HarmonyMethod(typeof(PatchManager), nameof(Prefix)),
                 new HarmonyMethod(typeof(PatchManager), nameof(Postfix)));
             log.Info("[OPPatch] GetAvailableRemoteImages patched");
 
-            // 解析内置 MovieDb 提供者
-            var movieDb = AppDomain.CurrentDomain.GetAssemblies()
+            _movieDbAssembly = AppDomain.CurrentDomain.GetAssemblies()
                 .FirstOrDefault(a => a.GetName().Name == "MovieDb");
-            if (movieDb != null)
+            if (_movieDbAssembly != null)
             {
-                var mp = movieDb.GetType("MovieDb.MovieDbProvider", false);
-                var sp = movieDb.GetType("MovieDb.MovieDbSeriesProvider", false);
-                _movieDbCurrent = mp?.GetProperty("Current", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                _seriesDbCurrent = sp?.GetProperty("Current", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                _ensureMovieInfo = mp?.GetMethod("EnsureMovieInfo", BindingFlags.Instance | BindingFlags.NonPublic,
-                    null, new[] { typeof(string), typeof(string), typeof(System.Threading.CancellationToken) }, null);
-                _ensureSeriesInfo = sp?.GetMethod("EnsureSeriesInfo", BindingFlags.Instance | BindingFlags.NonPublic,
-                    null, new[] { typeof(string), typeof(string), typeof(System.Threading.CancellationToken) }, null);
-                log.Info("[OPPatch] MovieDb resolved");
+                var imageProvider = _movieDbAssembly.GetType("MovieDb.MovieDbImageProvider", false);
+                if (imageProvider != null)
+                {
+                    _getMovieInfo = imageProvider.GetMethod("GetMovieInfo",
+                        BindingFlags.Instance | BindingFlags.NonPublic, null,
+                        new[] { typeof(BaseItem), typeof(string), typeof(IJsonSerializer), typeof(CancellationToken) },
+                        null);
+                    if (_getMovieInfo != null)
+                    {
+                        _harmony.Patch(_getMovieInfo, postfix: new HarmonyMethod(typeof(PatchManager), nameof(GetMovieInfoPostfix)));
+                        log.Info("[OPPatch] MovieDbImageProvider.GetMovieInfo patched");
+                    }
+                }
+
+                var seriesProvider = _movieDbAssembly.GetType("MovieDb.MovieDbSeriesProvider", false);
+                if (seriesProvider != null)
+                {
+                    _ensureSeriesInfo = seriesProvider.GetMethod("EnsureSeriesInfo",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                    if (_ensureSeriesInfo != null)
+                    {
+                        _harmony.Patch(_ensureSeriesInfo, postfix: new HarmonyMethod(typeof(PatchManager), nameof(EnsureSeriesInfoPostfix)));
+                        log.Info("[OPPatch] MovieDbSeriesProvider.EnsureSeriesInfo patched");
+                    }
+                }
+            }
+            else
+            {
+                log.Warn("[OPPatch] MovieDb assembly not found, original language detection unavailable");
             }
         }
         catch (Exception ex)
@@ -79,65 +109,103 @@ public static class PatchManager
         _log?.Info("[OPPatch] Configured: enabled={0}, zhSplit={1}", enabled, zhSplit);
     }
 
-    private static string? GetOriginalLang(BaseItem item)
+    private static string? ResolveOriginalLanguage(BaseItem item)
+    {
+        if (item is Season s) return ResolveOriginalLanguage(s.Series);
+        if (item is Episode ep) return ResolveOriginalLanguage(ep.Series);
+        if (item is not Movie && item is not Series) return null;
+
+        var tmdbId = item.GetProviderId(MetadataProviders.Tmdb);
+        if (string.IsNullOrWhiteSpace(tmdbId)) return null;
+
+        if (OriginalLanguageByTmdbId.TryGetValue(tmdbId, out var lang))
+            return lang;
+
+        return null;
+    }
+
+    [HarmonyPostfix]
+    private static void GetMovieInfoPostfix(BaseItem item, string language, IJsonSerializer jsonSerializer,
+        CancellationToken cancellationToken, Task __result)
     {
         try
         {
-            var target = item switch
+            var resultProp = __result.GetType().GetProperty("Result");
+            var movieData = resultProp?.GetValue(__result);
+            if (movieData == null) return;
+
+            var idProp = movieData.GetType().GetProperty("id");
+            var langProp = movieData.GetType().GetProperty("original_language",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
+            if (idProp == null || langProp == null) return;
+
+            var id = idProp.GetValue(movieData)?.ToString();
+            var origLang = langProp.GetValue(movieData)?.ToString();
+            if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(origLang))
             {
-                Season s => s.Series,
-                Episode ep => ep.Series,
-                _ => item
-            };
-            if (target == null) return null;
-
-            var tmdbId = target.GetProviderId(MetadataProviders.Tmdb);
-            if (string.IsNullOrWhiteSpace(tmdbId)) return null;
-
-            var isMovie = target is Movie;
-            var method = isMovie ? _ensureMovieInfo : _ensureSeriesInfo;
-            var prop = isMovie ? _movieDbCurrent : _seriesDbCurrent;
-            if (method == null || prop == null) return null;
-
-            var provider = prop.GetValue(null);
-            var task = method.Invoke(provider, new object[] { tmdbId.Trim(), null!, System.Threading.CancellationToken.None }) as Task;
-            task?.GetAwaiter().GetResult();
-            if (task == null) return null;
-
-            var result = task.GetType().GetProperty("Result")?.GetValue(task);
-            if (result == null) return null;
-
-            var lang = result.GetType()
-                .GetProperty("original_language", BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase)
-                ?.GetValue(result)?.ToString();
-            if (string.IsNullOrWhiteSpace(lang)) return null;
-
-            lang = lang.Trim().ToLowerInvariant();
-            return lang == "cn" ? "zh" : lang;
+                var normalized = origLang.Trim().ToLowerInvariant();
+                OriginalLanguageByTmdbId[id] = normalized == "cn" ? "zh" : normalized;
+                _log?.Debug("[OPPatch] Movie original_language {0} -> {1}", id, normalized);
+            }
         }
         catch (Exception ex)
         {
-            _log?.Debug("[OPPatch] GetOriginalLang: {0}", ex.Message);
-            return null;
+            _log?.Debug("[OPPatch] GetMovieInfoPostfix: {0}", ex.Message);
+        }
+    }
+
+    [HarmonyPostfix]
+    private static void EnsureSeriesInfoPostfix(string tmdbId, string language,
+        CancellationToken cancellationToken, Task __result)
+    {
+        try
+        {
+            var resultProp = __result.GetType().GetProperty("Result");
+            var seriesInfo = resultProp?.GetValue(__result);
+            if (seriesInfo == null) return;
+
+            var languagesProp = seriesInfo.GetType().GetProperty("languages",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
+            if (languagesProp == null) return;
+
+            var languages = languagesProp.GetValue(seriesInfo) as List<string>;
+            var origLang = languages?.FirstOrDefault();
+            if (!string.IsNullOrEmpty(origLang))
+            {
+                var normalized = origLang.Trim().ToLowerInvariant();
+                OriginalLanguageByTmdbId[tmdbId] = normalized == "cn" ? "zh" : normalized;
+                _log?.Debug("[OPPatch] Series original_language {0} -> {1}", tmdbId, normalized);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log?.Debug("[OPPatch] EnsureSeriesInfoPostfix: {0}", ex.Message);
         }
     }
 
     [HarmonyPrefix]
-    private static void Prefix(BaseItem item, ref LibraryOptions libraryOptions, ref RemoteImageQuery query)
+    private static void Prefix(BaseItem item, LibraryOptions libraryOptions, ref RemoteImageQuery query,
+        IDirectoryService directoryService, CancellationToken cancellationToken)
     {
         if (!_enabled || item == null || query == null) return;
         query.IncludeAllLanguages = true;
+
+        var tmdbId = item.GetProviderId(MetadataProviders.Tmdb);
+        var imdbId = item.GetProviderId(MetadataProviders.Imdb);
+        CurrentContext.Value = new ContextItem { TmdbId = tmdbId, ImdbId = imdbId };
     }
 
     [HarmonyPostfix]
-    private static void Postfix(BaseItem item, LibraryOptions libraryOptions,
+    private static void Postfix(BaseItem item, LibraryOptions libraryOptions, RemoteImageQuery query,
+        IDirectoryService directoryService, CancellationToken cancellationToken,
         ref Task<IEnumerable<RemoteImageInfo>> __result)
     {
         if (!_enabled || item == null || __result == null) return;
 
         var prefLang = libraryOptions.PreferredImageLanguage;
         if (string.IsNullOrWhiteSpace(prefLang)) prefLang = "en";
-        var origLang = GetOriginalLang(item);
+
+        var origLang = ResolveOriginalLanguage(item);
 
         __result = __result.ContinueWith(task =>
         {
@@ -147,7 +215,10 @@ public static class PatchManager
                 if (imgs == null) return Enumerable.Empty<RemoteImageInfo>();
                 return Sort(imgs, prefLang, origLang);
             }
-            catch { return task.Result ?? Enumerable.Empty<RemoteImageInfo>(); }
+            catch
+            {
+                return task.Result ?? Enumerable.Empty<RemoteImageInfo>();
+            }
         }, TaskContinuationOptions.OnlyOnRanToCompletion);
     }
 
@@ -170,10 +241,9 @@ public static class PatchManager
         var lang = img.Language?.Split('-')[0].ToLowerInvariant();
         var baseScore = img.CommunityRating ?? 0;
 
-        // 无文字海报
-        if (string.IsNullOrWhiteSpace(lang)) return baseScore + 5;
+        if (string.IsNullOrWhiteSpace(lang))
+            return baseScore + 5;
 
-        // 简繁区分
         if (_zhSplit && isZh)
         {
             if (img.Language?.StartsWith("zh-CN", StringComparison.OrdinalIgnoreCase) == true ||
@@ -184,9 +254,7 @@ public static class PatchManager
                 return baseScore + 25;
         }
 
-        // 首选语言
         if (lang == prefBase) return baseScore + 20;
-        // 原语言
         if (!string.IsNullOrWhiteSpace(origBase) && lang == origBase) return baseScore + 15;
 
         return baseScore + 10;

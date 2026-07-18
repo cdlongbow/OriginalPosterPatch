@@ -8,11 +8,18 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Lib.Harmony" Version="2.3.3" />
+    <PackageReference Include="Lib.Harmony" Version="2.3.6" />
     <PackageReference Include="MediaBrowser.Server.Core" Version="4.9.1.90" />
     <PackageReference Include="MediaBrowser.Common" Version="4.9.1.90" />
+    <PackageReference Include="ILRepack" Version="2.0.42">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Properties\thumb.png" />
   </ItemGroup>
+  <Target Name="MergeDependencies" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
+    <Exec Command="$(ILRepack) /out:$(TargetDir)Merged-$(AssemblyName).dll $(TargetPath) $(TargetDir)0Harmony.dll /lib:$(TargetDir)" />
+  </Target>
 </Project>
