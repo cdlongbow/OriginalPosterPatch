@@ -9,6 +9,7 @@
 | 首选语言优先 | 优先显示媒体库设置的「首选图像下载语言」的海报，如简中 |
 | 原语言回退 | 首选语言无图时，自动回退到 TMDB 原语言海报 |
 | 简繁区分（尝鲜版） | 简体中文（zh-CN）优先于繁体中文（zh-TW/zh-HK）非精确，仅限尝鲜，勿喷 |
+| season00-poster 支持 | 特别篇（Specials）剧集自动适配 `season00-poster.jpg` 命名规范，兼容 Plex 等刮削工具的图片文件 |
 | 零配置 | 无需 TMDB API Key，复用 Emby 内置 MovieDb 提供者 |
 | 全类型支持 | 电影 / 剧集 / 播出季 / 单集 / 合集 |
 
@@ -26,7 +27,7 @@ cd OriginalPosterPatch
 dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release
 ```
 
-编译产物在 `OriginalPosterPatch/bin/Release/net8.0/` 目录下，将 `OriginalPosterPatch.dll`（ILRepack 合并后的单文件）放入 Emby 的 `plugins` 目录即可。
+编译产物在 `OriginalPosterPatch/bin/Release/net8.0/` 目录下，将 `Merged-OriginalPosterPatch.dll`（ILRepack 合并后的单文件）放入 Emby 的 `plugins` 目录即可。
 
 > Windows 环境下编译会自动触发 ILRepack 将 `0Harmony.dll` 合并到输出 DLL。如在其他平台编译，需要手动将 `0Harmony.dll` 和 `OriginalPosterPatch.dll` 一起放入 plugins 目录。
 
@@ -56,7 +57,7 @@ dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release
 
 ## 安装
 
-1. 下载 `OriginalPosterPatch.dll`（GitHub Actions 构建产物）
+1. 下载 `Merged-OriginalPosterPatch.dll`（GitHub Actions 构建产物）
 2. 放入 Emby Server 的 `plugins` 目录
 3. 重启 Emby
 4. 进入 `设置` → `插件` → `Original Poster Patch`，确认已加载
@@ -74,15 +75,29 @@ dotnet build OriginalPosterPatch/OriginalPosterPatch.csproj -c Release
 
 ## 排序逻辑
 
-| 海报语言 | 优先级 |
-|----------|--------|
-| zh-CN / zh-SG（简体中文） | 最高 |
-| zh-TW / zh-HK（繁体中文） | 高 |
-| zh（通用中文） | 中高 |
-| 原语言（如 ko / ja） | 中 |
-| en（英文） | 低 |
-| 其他 | 更低 |
-| 无语言文字海报 | 最低 |
+### 启用简繁区分时
+
+| 海报语言 | 得分 | 说明 |
+|----------|------|------|
+| zh-CN / zh-SG | +100 | 简体中文 |
+| zh-TW / zh-HK | +80 | 繁体中文 |
+| 首选语言（非 zh 系列） | +60 | 匹配媒体库首选语言 |
+| 原语言 | +30 | TMDB 返回的 original_language |
+| en | +10 | 英文兜底 |
+| 其他 | +5 | 其他语言 |
+| 无语言 | +0 | 无语言文字海报 |
+
+### 未启用简繁区分时
+
+| 海报语言 | 得分 | 说明 |
+|----------|------|------|
+| 首选语言 | +60 | 匹配媒体库首选语言（含所有 zh 变体） |
+| 原语言 | +30 | TMDB 返回的 original_language |
+| en | +10 | 英文兜底 |
+| 其他 | +5 | 其他语言 |
+| 无语言 | +0 | 无语言文字海报 |
+
+同分情况下按 `CommunityRating` 降序排列。
 
 ## 技术说明
 
