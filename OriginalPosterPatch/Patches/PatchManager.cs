@@ -14,6 +14,8 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Providers;
 using MediaBrowser.Model.Serialization;
+using MediaBrowser.Controller.Providers;
+using MediaBrowser.Model.IO;
 
 namespace OriginalPosterPatch.Patches;
 
@@ -29,6 +31,8 @@ public static class PatchManager
     private static MethodInfo? _ensureSeriesInfo;
     private static MethodInfo? _getAvailableRemoteImages;
     private static bool _useIHasProviderIds;
+    private static MethodInfo? _seasonImageMethod;
+    private static MethodInfo? _addImageMethod;
 
     private static readonly ConcurrentDictionary<string, string> OriginalLanguageByTmdbId = new();
     private static readonly AsyncLocal<ContextItem?> CurrentContext = new();
@@ -116,6 +120,52 @@ public static class PatchManager
             else
             {
                 log.Warn("[OPPatch] MovieDb assembly not found, original language detection unavailable");
+            }
+
+            var localMetadataAssembly = AppDomain.CurrentDomain.GetAssemblies()
+                .FirstOrDefault(a => a.GetName().Name == "Emby.LocalMetadata");
+            if (localMetadataAssembly != null)
+            {
+                var localImageProvider = localMetadataAssembly.GetType("Emby.LocalMetadata.Images.LocalImageProvider", false);
+                if (localImageProvider != null)
+                {
+                    _seasonImageMethod = localImageProvider.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                        .FirstOrDefault(m =>
+                        {
+                            var parms = m.GetParameters();
+                            if (parms.Length != 4) return false;
+                            return parms[0].ParameterType == typeof(Season) &&
+                                   parms[1].ParameterType == typeof(LibraryOptions) &&
+                                   parms[2].ParameterType.IsGenericType &&
+                                   parms[2].ParameterType.GetGenericTypeDefinition() == typeof(List<>) &&
+                                   parms[3].ParameterType == typeof(IDirectoryService);
+                        });
+
+                    if (_seasonImageMethod != null)
+                    {
+                        _harmony.Patch(_seasonImageMethod, postfix: new HarmonyMethod(typeof(PatchManager), nameof(SeasonImagePostfix)));
+                        log.Info("[OPPatch] LocalImageProvider season image method patched");
+
+                        _addImageMethod = localImageProvider.GetMethod("AddImage",
+                            BindingFlags.Instance | BindingFlags.Public, null,
+                            new[] { typeof(FileSystemMetadata[]), typeof(List<LocalImageInfo>), typeof(string), typeof(ImageType) },
+                            null);
+                        if (_addImageMethod == null)
+                            log.Warn("[OPPatch] LocalImageProvider.AddImage not found");
+                    }
+                    else
+                    {
+                        log.Warn("[OPPatch] LocalImageProvider season image method not found");
+                    }
+                }
+                else
+                {
+                    log.Warn("[OPPatch] Emby.LocalMetadata.Images.LocalImageProvider type not found");
+                }
+            }
+            else
+            {
+                log.Warn("[OPPatch] Emby.LocalMetadata assembly not found");
             }
         }
         catch (Exception ex)
@@ -216,6 +266,29 @@ public static class PatchManager
         catch (Exception ex)
         {
             _log?.Debug("[OPPatch] EnsureSeriesInfoPostfix: {0}", ex.Message);
+        }
+    }
+
+    [HarmonyPostfix]
+    private static void SeasonImagePostfix(object __instance,
+        [HarmonyArgument(0)] Season season,
+        [HarmonyArgument(1)] LibraryOptions libraryOptions,
+        [HarmonyArgument(2)] List<LocalImageInfo> images,
+        [HarmonyArgument(3)] IDirectoryService directoryService)
+    {
+        try
+        {
+            if (season.IndexNumber == null || season.IndexNumber.Value != 0) return;
+            if (string.IsNullOrWhiteSpace(season.Path)) return;
+
+            var files = directoryService.GetFiles(season.Path);
+            if (files == null || files.Length == 0) return;
+
+            _addImageMethod?.Invoke(__instance, new object[] { files, images, "season00-poster", ImageType.Poster });
+        }
+        catch (Exception ex)
+        {
+            _log?.Debug("[OPPatch] SeasonImagePostfix: {0}", ex.Message);
         }
     }
 
