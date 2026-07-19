@@ -282,9 +282,9 @@ public static class PatchManager
             if (string.IsNullOrWhiteSpace(season.Path)) return;
 
             var files = directoryService.GetFiles(season.Path);
-            if (files == null || files.Length == 0) return;
+            if (files == null || files.Count == 0) return;
 
-            _addImageMethod?.Invoke(__instance, new object[] { files, images, "season00-poster", ImageType.Poster });
+            _addImageMethod?.Invoke(__instance, new object[] { files, images, "season00-poster", ImageType.Primary });
         }
         catch (Exception ex)
         {
